@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zalo Hen Gio</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:760px;margin:16px auto;padding:0 16px}
+section{border:1px solid #ccc;border-radius:8px;padding:12px;margin-bottom:16px}
+input,select,textarea,button{font:inherit;padding:6px;margin:4px 0;width:100%;box-sizing:border-box}
+button{width:auto;cursor:pointer}
+table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #eee;padding:4px;text-align:left;font-size:14px}
+.err{color:#b00}
+</style></head><body>
+<h1>Zalo Hen Gio</h1>
+<section id="auth"></section>
+<section id="compose" hidden>
+  <h2>Gui / hen gio</h2>
+  <select id="contact"></select>
+  <textarea id="text" rows="3" placeholder="Noi dung tin nhan"></textarea>
+  <input id="when" type="datetime-local">
+  <button onclick="schedule()">Hen gio</button>
+  <button onclick="sendNow()">Gui ngay</button>
+  <div id="msg"></div>
+</section>
+<section>
+  <h2>Lich da hen</h2>
+  <table><thead><tr><th>Nguoi nhan</th><th>Noi dung</th><th>Gio gui</th><th>Trang thai</th><th></th></tr></thead><tbody id="list"></tbody></table>
+</section>
+<script>
+const $=id=>document.getElementById(id);
+const api=(p,o)=>fetch(p,o&&{method:o.method,headers:{'content-type':'application/json'},body:o.body&&JSON.stringify(o.body)}).then(r=>r.json());
+let contacts=[],loaded=false;
+async function refreshAuth(){
+  const s=await api('/api/status');
+  let h='';
+  if(s.login==='logged_in'){h=`Da dang nhap: <b>${esc(s.user?.name||'')}</b> <button onclick="api('/api/logout',{method:'POST'}).then(refreshAuth)">Dang xuat</button>`;
+    $('compose').hidden=false;
+    if(!loaded){loaded=true;const c=await api('/api/contacts');if(Array.isArray(c)){contacts=c;$('contact').innerHTML=c.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');}}
+  }else{
+    $('compose').hidden=true;loaded=false;
+    if(s.qrImage)h=`Quet ma QR bang app Zalo:<br><img src="data:image/png;base64,${s.qrImage}" width="220">`;
+    else if(s.login==='scanned')h='Da quet, hay xac nhan tren dien thoai...';
+    else if(s.login==='waiting_qr')h='Dang tao ma QR...';
+    else h='<button onclick="api(\'/api/login\',{method:\'POST\'}).then(refreshAuth)">Dang nhap bang QR</button>';
+    if(s.error)h+=`<div class="err">${esc(s.error)}</div>`;
+  }
+  $('auth').innerHTML=h;
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function body(){const sel=$('contact');return{threadId:sel.value,threadType:0,threadName:sel.selectedOptions[0]?.text,text:$('text').value}}
+async function schedule(){
+  if(!$('when').value)return $('msg').textContent='Chon gio gui';
+  const r=await api('/api/schedule',{method:'POST',body:{...body(),sendAt:new Date($('when').value).getTime()}});
+  $('msg').textContent=r.error||'Da hen gio';loadList();
+}
+async function sendNow(){const r=await api('/api/send',{method:'POST',body:body()});$('msg').textContent=r.error||'Da gui'}
+async function cancel(id){await api('/api/schedule/'+id,{method:'DELETE'});loadList()}
+async function loadList(){
+  const l=await api('/api/schedule');
+  $('list').innerHTML=l.map(j=>`<tr><td>${esc(j.thread_name||j.thread_id)}</td><td>${esc(j.text)}</td><td>${new Date(j.send_at).toLocaleString('vi-VN')}</td><td>${j.status}${j.error?` <span class="err">${esc(j.error)}</span>`:''}</td><td>${j.status==='pending'?`<button onclick="cancel(${j.id})">Huy</button>`:''}</td></tr>`).join('');
+}
+refreshAuth();loadList();setInterval(refreshAuth,2000);setInterval(loadList,5000);
+</script></body></html>
